@@ -56,9 +56,9 @@ def flappygame():
     bird_velocity_y = -9
     bird_Max_Vel_Y = 10
     bird_Min_Vel_Y = -8
-    birdAccY = 1
+    birdAccY = 0.5
 
-    bird_flap_velocity = -8
+    bird_flap_velocity = -6
     bird_flapped = False
     while True:
         flap_triggered = False
