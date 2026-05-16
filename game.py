@@ -4,9 +4,12 @@ import sys
 import pygame
 from pygame.locals import *
 
+from blink import BlinkDetector
+
 # All the Game Variables
 window_width = 600
 window_height = 500
+blink_detector = None
 
 # set height and width of window
 window = pygame.display.set_mode((window_width, window_height))
@@ -58,14 +61,24 @@ def flappygame():
     bird_flap_velocity = -8
     bird_flapped = False
     while True:
+        flap_triggered = False
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+                if blink_detector is not None:
+                    blink_detector.release()
                 pygame.quit()
                 sys.exit()
             if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-                if vertical > 0:
-                    bird_velocity_y = bird_flap_velocity
-                    bird_flapped = True
+                flap_triggered = True
+
+        if blink_detector is not None:
+            if blink_detector.poll_flap():
+                flap_triggered = True
+            blink_detector.display_window()
+
+        if flap_triggered and vertical > 0:
+            bird_velocity_y = bird_flap_velocity
+            bird_flapped = True
 
         # This function will return true
         # if the flappybird is crashed
@@ -183,6 +196,8 @@ if __name__ == "__main__":
     pygame.init()
     framepersecond_clock = pygame.time.Clock()
 
+    blink_detector = BlinkDetector(show_window=False)
+
     # Sets the title on top of game window
     pygame.display.set_caption('Flappy Bird Game')
 
@@ -225,11 +240,13 @@ if __name__ == "__main__":
             (window_height - game_images['flappybird'].get_height()) / 2)
         ground = 0
         while True:
+            start_triggered = False
             for event in pygame.event.get():
 
                 # if user clicks on cross button, close the game
                 if event.type == QUIT or (event.type == KEYDOWN and \
                                           event.key == K_ESCAPE):
+                    blink_detector.release()
                     pygame.quit()
                     sys.exit()
 
@@ -237,13 +254,18 @@ if __name__ == "__main__":
                 # up key, start the game for them
                 elif event.type == KEYDOWN and (event.key == K_SPACE or\
                                                 event.key == K_UP):
-                    flappygame()
+                    start_triggered = True
 
-                # if user doesn't press anykey Nothing happen
-                else:
-                    window.blit(game_images['background'], (0, 0))
-                    window.blit(game_images['flappybird'],
-                                (horizontal, vertical))
-                    window.blit(game_images['sea_level'], (ground, elevation))
-                    pygame.display.update()
-                    framepersecond_clock.tick(framepersecond)
+            if blink_detector.poll_flap():
+                start_triggered = True
+            blink_detector.display_window()
+
+            if start_triggered:
+                flappygame()
+            else:
+                window.blit(game_images['background'], (0, 0))
+                window.blit(game_images['flappybird'],
+                            (horizontal, vertical))
+                window.blit(game_images['sea_level'], (ground, elevation))
+                pygame.display.update()
+                framepersecond_clock.tick(framepersecond)
