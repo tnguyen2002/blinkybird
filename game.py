@@ -172,7 +172,7 @@ def isGameOver(horizontal, vertical, up_pipes, down_pipes):
 
 
 def createPipe():
-    offset = window_height / 3
+    offset = window_height / 3.5
     pipeHeight = game_images['pipeimage'][0].get_height()
     y2 = offset + \
         random.randrange(
