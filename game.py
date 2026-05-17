@@ -34,6 +34,26 @@ sealevel_image = 'images/base.jfif'
 CAMERA_PREVIEW_HEIGHT = 80 * SCALE  # fits inside the sea band
 
 
+def draw_menu_text():
+    """Show how to start, flap, and quit on the title screen."""
+    title_font = pygame.font.SysFont(None, 28 * SCALE, bold=True)
+    body_font = pygame.font.SysFont(None, 18 * SCALE)
+    lines = [
+        (title_font, "FLAPPY BIRD", (255, 230, 60)),
+        (body_font, "Press ENTER to play", (255, 255, 255)),
+        (body_font, "Blink / SPACE / UP to flap", (255, 255, 255)),
+        (body_font, "Press ESC to quit", (255, 255, 255)),
+    ]
+    y = int(window_height * 0.18)
+    for font, text, color in lines:
+        shadow = font.render(text, True, (0, 0, 0))
+        surf = font.render(text, True, color)
+        x = (window_width - surf.get_width()) // 2
+        window.blit(shadow, (x + 2, y + 2))
+        window.blit(surf, (x, y))
+        y += surf.get_height() + 6 * SCALE
+
+
 def blit_camera_preview():
     """Draw the detector's latest annotated frame inside the sea band."""
     if blink_detector is None or blink_detector.latest_frame is None:
@@ -285,6 +305,7 @@ if __name__ == "__main__":
                 window.blit(game_images['flappybird'],
                             (horizontal, vertical))
                 window.blit(game_images['sea_level'], (ground, elevation))
+                draw_menu_text()
                 blit_camera_preview()
                 pygame.display.update()
                 framepersecond_clock.tick(framepersecond)

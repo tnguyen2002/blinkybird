@@ -58,7 +58,8 @@ class BlinkDetector:
         self.crop_h_ratio = crop_h_ratio
         self.debug = debug
 
-        self.cap = cv2.VideoCapture(camera_index)
+        self.camera_index = camera_index
+        self.cap = self._open_camera()
         self.face_mesh = mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=False,
@@ -73,10 +74,38 @@ class BlinkDetector:
         # Latest annotated frame in RGB, for the game to blit as a PiP overlay.
         self.latest_frame = None
 
+    def _open_camera(self):
+        """Try the configured index, then the other of {0, 1}. Returns the
+        first VideoCapture that opens and yields a frame."""
+        tried = []
+        for idx in (self.camera_index, 1 - self.camera_index if self.camera_index in (0, 1) else 0):
+            if idx in tried:
+                continue
+            tried.append(idx)
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                ok, _ = cap.read()
+                if ok:
+                    if self.debug:
+                        print(f"camera: opened index {idx}")
+                    self.camera_index = idx
+                    return cap
+            cap.release()
+            if self.debug:
+                print(f"camera: index {idx} failed")
+        # Return a closed capture so .read() simply returns False and we'll retry.
+        return cv2.VideoCapture(self.camera_index)
+
+    def _reopen_camera(self):
+        if self.cap is not None:
+            self.cap.release()
+        self.cap = self._open_camera()
+
     def poll_flap(self):
         """Grab one frame and return True if it's a fresh blink edge."""
         retval, frame = self.cap.read()
         if not retval:
+            self._reopen_camera()
             return False
 
         if self.crop_w_ratio < 1.0 or self.crop_h_ratio < 1.0:
@@ -147,7 +176,8 @@ class BlinkDetector:
         return flap
 
     def release(self):
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
         self.face_mesh.close()
 
 
