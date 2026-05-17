@@ -74,7 +74,6 @@ def flappygame():
         if blink_detector is not None:
             if blink_detector.poll_flap():
                 flap_triggered = True
-            blink_detector.display_window()
 
         if flap_triggered and vertical > 0:
             bird_velocity_y = bird_flap_velocity
@@ -196,7 +195,7 @@ if __name__ == "__main__":
     pygame.init()
     framepersecond_clock = pygame.time.Clock()
 
-    blink_detector = BlinkDetector(show_window=False)
+    blink_detector = BlinkDetector(show_window=True)
 
     # Sets the title on top of game window
     pygame.display.set_caption('Flappy Bird Game')
@@ -227,7 +226,7 @@ if __name__ == "__main__":
       pipeimage).convert_alpha())
 
     print("WELCOME TO THE FLAPPY BIRD GAME")
-    print("Press space or enter to start the game")
+    print("Press Enter to start the game")
 
     # Here starts the main game
 
@@ -250,15 +249,14 @@ if __name__ == "__main__":
                     pygame.quit()
                     sys.exit()
 
-                # If the user presses space or
-                # up key, start the game for them
-                elif event.type == KEYDOWN and (event.key == K_SPACE or\
-                                                event.key == K_UP):
+                # Enter starts the game.
+                elif event.type == KEYDOWN and event.key == K_RETURN:
                     start_triggered = True
 
-            if blink_detector.poll_flap():
-                start_triggered = True
-            blink_detector.display_window()
+            # Drain any blinks that happened on the menu so they don't
+            # immediately fire as flaps once the game starts.
+            while blink_detector.poll_flap():
+                pass
 
             if start_triggered:
                 flappygame()

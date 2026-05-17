@@ -1,5 +1,4 @@
 import math
-import threading
 import time
 from collections import deque
 
@@ -47,12 +46,16 @@ class BlinkDetector:
                  baseline_window=60,
                  cooldown_seconds=0.15,
                  show_window=False,
-                 threaded=True,
+                 display_scale=0.5,
+                 crop_w_ratio=0.4,
+                 crop_h_ratio=0.85,
                  debug=False):
         self.delta = delta
         self.cooldown_seconds = cooldown_seconds
         self.show_window = show_window
-        self.threaded = threaded
+        self.display_scale = display_scale
+        self.crop_w_ratio = crop_w_ratio
+        self.crop_h_ratio = crop_h_ratio
         self.debug = debug
 
         self.cap = cv2.VideoCapture(camera_index)
@@ -67,28 +70,21 @@ class BlinkDetector:
         self._last_flap_time = 0.0
         self._ratio_window = deque(maxlen=2)
         self._baseline_window = deque(maxlen=baseline_window)
-        self._lock = threading.Lock()
-        self._pending_flaps = 0
-        self._latest_display_frame = None
-        self._stop_event = threading.Event()
-        self._thread = None
 
         if self.show_window:
             cv2.namedWindow('BlinkDetector')
 
-        if self.threaded:
-            self._thread = threading.Thread(target=self._run, daemon=True)
-            self._thread.start()
-
-    def _run(self):
-        while not self._stop_event.is_set():
-            self._tick()
-
-    def _tick(self):
-        """Read one frame, update edge state, push flap on open->closed edge."""
+    def poll_flap(self):
+        """Grab one frame and return True if it's a fresh blink edge."""
         retval, frame = self.cap.read()
         if not retval:
-            return
+            return False
+
+        if self.crop_w_ratio < 1.0 or self.crop_h_ratio < 1.0:
+            fh, fw = frame.shape[:2]
+            cw, ch = int(fw * self.crop_w_ratio), int(fh * self.crop_h_ratio)
+            x0, y0 = (fw - cw) // 2, (fh - ch) // 2
+            frame = frame[y0:y0 + ch, x0:x0 + cw]
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.face_mesh.process(rgb)
@@ -139,42 +135,20 @@ class BlinkDetector:
         )
         if flap:
             self._last_flap_time = now
-            with self._lock:
-                self._pending_flaps += 1
         self._was_blinking = is_blinking
 
         if self.show_window:
-            if self.threaded:
-                with self._lock:
-                    self._latest_display_frame = frame
-            else:
-                cv2.imshow('BlinkDetector', frame)
-                cv2.waitKey(1)
-
-    def poll_flap(self):
-        """Return True if a flap edge happened since the last call."""
-        if not self.threaded:
-            self._tick()
-        with self._lock:
-            if self._pending_flaps > 0:
-                self._pending_flaps -= 1
-                return True
-            return False
-
-    def display_window(self):
-        """Call from the main thread to show the latest camera frame."""
-        if not (self.show_window and self.threaded):
-            return
-        with self._lock:
-            frame = self._latest_display_frame
-        if frame is not None:
+            if self.display_scale != 1.0:
+                fh, fw = frame.shape[:2]
+                frame = cv2.resize(frame,
+                                   (int(fw * self.display_scale),
+                                    int(fh * self.display_scale)))
             cv2.imshow('BlinkDetector', frame)
             cv2.waitKey(1)
 
+        return flap
+
     def release(self):
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
         self.cap.release()
         self.face_mesh.close()
         if self.show_window:
@@ -182,8 +156,7 @@ class BlinkDetector:
 
 
 if __name__ == "__main__":
-    # Synchronous mode so cv2.imshow runs on the main thread.
-    detector = BlinkDetector(show_window=True, threaded=False, debug=True)
+    detector = BlinkDetector(show_window=True, debug=True)
     try:
         while True:
             if detector.poll_flap():
