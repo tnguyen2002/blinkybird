@@ -70,9 +70,8 @@ class BlinkDetector:
         self._last_flap_time = 0.0
         self._ratio_window = deque(maxlen=2)
         self._baseline_window = deque(maxlen=baseline_window)
-
-        if self.show_window:
-            cv2.namedWindow('BlinkDetector')
+        # Latest annotated frame in RGB, for the game to blit as a PiP overlay.
+        self.latest_frame = None
 
     def poll_flap(self):
         """Grab one frame and return True if it's a fresh blink edge."""
@@ -143,25 +142,30 @@ class BlinkDetector:
                 frame = cv2.resize(frame,
                                    (int(fw * self.display_scale),
                                     int(fh * self.display_scale)))
-            cv2.imshow('BlinkDetector', frame)
-            cv2.waitKey(1)
+            self.latest_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         return flap
 
     def release(self):
         self.cap.release()
         self.face_mesh.close()
-        if self.show_window:
-            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
+    # Standalone smoke test: still uses an OpenCV window since there's no
+    # pygame surface to blit into.
+    cv2.namedWindow('BlinkDetector')
     detector = BlinkDetector(show_window=True, debug=True)
     try:
         while True:
             if detector.poll_flap():
                 print("FLAP")
+            if detector.latest_frame is not None:
+                cv2.imshow('BlinkDetector',
+                           cv2.cvtColor(detector.latest_frame,
+                                        cv2.COLOR_RGB2BGR))
             if cv2.waitKey(1) == 27:
                 break
     finally:
         detector.release()
+        cv2.destroyAllWindows()

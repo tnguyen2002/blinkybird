@@ -22,6 +22,26 @@ birdplayer_image = 'images/bird.png'
 sealevel_image = 'images/base.jfif'
 
 
+CAMERA_PREVIEW_HEIGHT = 80  # fits inside the sea band (y=400..500)
+
+
+def blit_camera_preview():
+    """Draw the detector's latest annotated frame inside the sea band."""
+    if blink_detector is None or blink_detector.latest_frame is None:
+        return
+    rgb = blink_detector.latest_frame
+    h, w = rgb.shape[:2]
+    surface = pygame.image.frombuffer(rgb.tobytes(), (w, h), 'RGB')
+    target_w = int(w * CAMERA_PREVIEW_HEIGHT / h)
+    surface = pygame.transform.smoothscale(
+        surface, (target_w, CAMERA_PREVIEW_HEIGHT))
+    x = 10
+    y = window_height - CAMERA_PREVIEW_HEIGHT - 10
+    pygame.draw.rect(window, (0, 0, 0),
+                     (x - 2, y - 2, target_w + 4, CAMERA_PREVIEW_HEIGHT + 4), 2)
+    window.blit(surface, (x, y))
+
+
 def flappygame():
     your_score = 0
     horizontal = int(window_width / 5)
@@ -148,6 +168,8 @@ def flappygame():
                         (Xoffset, window_width * 0.02))
             Xoffset += game_images['scoreimages'][num].get_width()
 
+        blit_camera_preview()
+
         # Refreshing the game window and displaying the score.
         pygame.display.update()
         framepersecond_clock.tick(framepersecond)
@@ -265,5 +287,6 @@ if __name__ == "__main__":
                 window.blit(game_images['flappybird'],
                             (horizontal, vertical))
                 window.blit(game_images['sea_level'], (ground, elevation))
+                blit_camera_preview()
                 pygame.display.update()
                 framepersecond_clock.tick(framepersecond)
