@@ -7,9 +7,18 @@ from pygame.locals import *
 from blink import BlinkDetector
 
 # All the Game Variables
-window_width = 600
-window_height = 500
+SCALE = 2  # everything pixel-absolute is multiplied by this
+window_width = 600 * SCALE
+window_height = 500 * SCALE
 blink_detector = None
+
+
+def load_scaled(path):
+    img = pygame.image.load(path).convert_alpha()
+    if SCALE == 1:
+        return img
+    return pygame.transform.smoothscale(
+        img, (img.get_width() * SCALE, img.get_height() * SCALE))
 
 # set height and width of window
 window = pygame.display.set_mode((window_width, window_height))
@@ -22,7 +31,7 @@ birdplayer_image = 'images/bird.png'
 sealevel_image = 'images/base.jfif'
 
 
-CAMERA_PREVIEW_HEIGHT = 80  # fits inside the sea band (y=400..500)
+CAMERA_PREVIEW_HEIGHT = 80 * SCALE  # fits inside the sea band
 
 
 def blit_camera_preview():
@@ -47,7 +56,7 @@ def flappygame():
     horizontal = int(window_width / 5)
     vertical = int(window_width / 2)
     ground = 0
-    mytempheight = 100
+    mytempheight = 100 * SCALE
 
     # Generating two pipes for blitting on window
     first_pipe = createPipe()
@@ -55,30 +64,30 @@ def flappygame():
 
     # List containing lower pipes
     down_pipes = [
-        {'x': window_width + 300 - mytempheight,
+        {'x': window_width + 300 * SCALE - mytempheight,
          'y': first_pipe[1]['y']},
-        {'x': window_width + 300 - mytempheight + (window_width / 2),
+        {'x': window_width + 300 * SCALE - mytempheight + (window_width / 2),
          'y': second_pipe[1]['y']},
     ]
 
     # List Containing upper pipes
     up_pipes = [
-        {'x': window_width + 300 - mytempheight,
+        {'x': window_width + 300 * SCALE - mytempheight,
          'y': first_pipe[0]['y']},
-        {'x': window_width + 300 - mytempheight + (window_width / 2),
+        {'x': window_width + 300 * SCALE - mytempheight + (window_width / 2),
          'y': second_pipe[0]['y']},
     ]
 
     # pipe velocity along x
-    pipeVelX = -4
+    pipeVelX = -4 * SCALE
 
     # bird velocity
-    bird_velocity_y = -9
-    bird_Max_Vel_Y = 10
-    bird_Min_Vel_Y = -8
-    birdAccY = 0.5
+    bird_velocity_y = -9 * SCALE
+    bird_Max_Vel_Y = 10 * SCALE
+    bird_Min_Vel_Y = -8 * SCALE
+    birdAccY = 0.5 * SCALE
 
-    bird_flap_velocity = -6
+    bird_flap_velocity = -6 * SCALE
     bird_flapped = False
     while True:
         flap_triggered = False
@@ -112,7 +121,7 @@ def flappygame():
         playerMidPos = horizontal + game_images['flappybird'].get_width() / 2
         for pipe in up_pipes:
             pipeMidPos = pipe['x'] + game_images['pipeimage'][0].get_width() / 2
-            if pipeMidPos <= playerMidPos < pipeMidPos + 4:
+            if pipeMidPos <= playerMidPos < pipeMidPos + 4 * SCALE:
                 your_score += 1
                 print(f"Your your_score is {your_score}")
 
@@ -132,7 +141,7 @@ def flappygame():
 
         # Add a new pipe when the first is
         # about to cross the leftmost part of the screen
-        if 0 < up_pipes[0]['x'] < 5:
+        if 0 < up_pipes[0]['x'] < 5 * SCALE:
             newpipe = createPipe()
             up_pipes.append(newpipe[0])
             down_pipes.append(newpipe[1])
@@ -176,7 +185,7 @@ def flappygame():
 
 
 def isGameOver(horizontal, vertical, up_pipes, down_pipes):
-    if vertical > elevation - 25 or vertical < 0:
+    if vertical > elevation - 25 * SCALE or vertical < 0:
         return True
 
     for pipe in up_pipes:
@@ -198,7 +207,7 @@ def createPipe():
     y2 = offset + \
         random.randrange(
             1, int(window_height - game_images['sea_level'].get_height() - 1.2 * offset))  
-    pipeX = window_width + 10
+    pipeX = window_width + 10 * SCALE
     y1 = pipeHeight - y2 + offset
     pipe = [
         # upper Pipe
@@ -225,27 +234,16 @@ if __name__ == "__main__":
     # Load all the images which we will use in the game
 
     # images for displaying score
-    game_images['scoreimages'] = (
-        pygame.image.load('images/0.png').convert_alpha(),
-        pygame.image.load('images/1.png').convert_alpha(),
-        pygame.image.load('images/2.png').convert_alpha(),
-        pygame.image.load('images/3.png').convert_alpha(),
-        pygame.image.load('images/4.png').convert_alpha(),
-        pygame.image.load('images/5.png').convert_alpha(),
-        pygame.image.load('images/6.png').convert_alpha(),
-        pygame.image.load('images/7.png').convert_alpha(),
-        pygame.image.load('images/8.png').convert_alpha(),
-        pygame.image.load('images/9.png').convert_alpha()
+    game_images['scoreimages'] = tuple(
+        load_scaled(f'images/{i}.png') for i in range(10))
+    game_images['flappybird'] = load_scaled(birdplayer_image)
+    game_images['sea_level'] = load_scaled(sealevel_image)
+    game_images['background'] = load_scaled(background_image)
+    pipe_img = load_scaled(pipeimage)
+    game_images['pipeimage'] = (
+        pygame.transform.rotate(pipe_img, 180),
+        pipe_img,
     )
-    game_images['flappybird'] = pygame.image.load(
-        birdplayer_image).convert_alpha()
-    game_images['sea_level'] = pygame.image.load(
-        sealevel_image).convert_alpha()
-    game_images['background'] = pygame.image.load(
-        background_image).convert_alpha()
-    game_images['pipeimage'] = (pygame.transform.rotate(pygame.image.load(
-        pipeimage).convert_alpha(), 180), pygame.image.load(
-      pipeimage).convert_alpha())
 
     print("WELCOME TO THE FLAPPY BIRD GAME")
     print("Press Enter to start the game")
