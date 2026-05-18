@@ -34,16 +34,7 @@ sealevel_image = 'images/base.jfif'
 CAMERA_PREVIEW_HEIGHT = 80 * SCALE  # fits inside the sea band
 
 
-def draw_menu_text():
-    """Show how to start, flap, and quit on the title screen."""
-    title_font = pygame.font.SysFont(None, 28 * SCALE, bold=True)
-    body_font = pygame.font.SysFont(None, 18 * SCALE)
-    lines = [
-        (title_font, "FLAPPY BIRD", (255, 230, 60)),
-        (body_font, "Press ENTER to play", (255, 255, 255)),
-        (body_font, "Blink / SPACE / UP to flap", (255, 255, 255)),
-        (body_font, "Press ESC to quit", (255, 255, 255)),
-    ]
+def draw_text_block(lines):
     y = int(window_height * 0.18)
     for font, text, color in lines:
         shadow = font.render(text, True, (0, 0, 0))
@@ -52,6 +43,48 @@ def draw_menu_text():
         window.blit(shadow, (x + 2, y + 2))
         window.blit(surf, (x, y))
         y += surf.get_height() + 6 * SCALE
+
+
+def draw_menu_text():
+    """Show how to start, flap, and quit on the title screen."""
+    title_font = pygame.font.SysFont(None, 28 * SCALE, bold=True)
+    body_font = pygame.font.SysFont(None, 18 * SCALE)
+    draw_text_block([
+        (title_font, "FLAPPY BIRD", (255, 230, 60)),
+        (body_font, "Press ENTER to play", (255, 255, 255)),
+        (body_font, "Blink / SPACE / UP to flap", (255, 255, 255)),
+        (body_font, "Press C to recalibrate", (255, 255, 255)),
+        (body_font, "Press ESC to quit", (255, 255, 255)),
+    ])
+
+
+def draw_pre_calibration_text():
+    """Shown before the user has ever calibrated — prompts them to begin."""
+    title_font = pygame.font.SysFont(None, 28 * SCALE, bold=True)
+    body_font = pygame.font.SysFont(None, 18 * SCALE)
+    draw_text_block([
+        (title_font, "FLAPPY BIRD", (255, 230, 60)),
+        (body_font, "Press C to calibrate your blink",
+         (255, 255, 255)),
+        (body_font, "Press ESC to quit", (255, 255, 255)),
+    ])
+
+
+def draw_calibration_text():
+    """Shown while the blink detector samples open vs. blinking ratios."""
+    view = blink_detector.calibration_view()
+    title_font = pygame.font.SysFont(None, 28 * SCALE, bold=True)
+    body_font = pygame.font.SysFont(None, 18 * SCALE)
+    big_font = pygame.font.SysFont(None, 72 * SCALE, bold=True)
+    lines = []
+    if view.get('title'):
+        lines.append((title_font, view['title'], (255, 230, 60)))
+    if view.get('body'):
+        lines.append((body_font, view['body'], (255, 255, 255)))
+    if view.get('big'):
+        color = (255, 80, 80) if view['big'] == 'BLINK!' else (255, 255, 255)
+        lines.append((big_font, view['big'], color))
+    draw_text_block(lines)
 
 
 def blit_camera_preview():
@@ -293,19 +326,28 @@ if __name__ == "__main__":
                 elif event.type == KEYDOWN and event.key == K_RETURN:
                     start_triggered = True
 
+                # C kicks off (or restarts) the calibration sequence.
+                elif event.type == KEYDOWN and event.key == K_c:
+                    blink_detector.start_calibration()
+
             # Drain any blinks that happened on the menu so they don't
             # immediately fire as flaps once the game starts.
             while blink_detector.poll_flap():
                 pass
 
-            if start_triggered:
+            if start_triggered and blink_detector.is_ready:
                 flappygame()
             else:
                 window.blit(game_images['background'], (0, 0))
                 window.blit(game_images['flappybird'],
                             (horizontal, vertical))
                 window.blit(game_images['sea_level'], (ground, elevation))
-                draw_menu_text()
+                if blink_detector.is_calibrating:
+                    draw_calibration_text()
+                elif blink_detector.needs_calibration:
+                    draw_pre_calibration_text()
+                else:
+                    draw_menu_text()
                 blit_camera_preview()
                 pygame.display.update()
                 framepersecond_clock.tick(framepersecond)

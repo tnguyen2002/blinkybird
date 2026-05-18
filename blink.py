@@ -5,7 +5,7 @@ from collections import deque
 import cv2
 from mediapipe.python.solutions import face_mesh as mp_face_mesh
 
-BLINK_DELTA = 0.3  # how far above the rolling open baseline counts as a blink
+BLINK_DELTA = 0.3 # how far above the calibrated open baseline counts as a blink
 
 # MediaPipe Face Mesh eye landmark indices.
 # Order: [outer_corner, top_a, top_b, inner_corner, bottom_b, bottom_a]
@@ -43,7 +43,7 @@ class BlinkDetector:
     def __init__(self,
                  camera_index=1,
                  delta=BLINK_DELTA,
-                 baseline_window=60,
+                 calibration_rounds=3,
                  cooldown_seconds=0.15,
                  show_window=False,
                  display_scale=0.5,
@@ -51,12 +51,18 @@ class BlinkDetector:
                  crop_h_ratio=0.85,
                  debug=False):
         self.delta = delta
+        self.calibration_rounds = calibration_rounds
         self.cooldown_seconds = cooldown_seconds
         self.show_window = show_window
         self.display_scale = display_scale
         self.crop_w_ratio = crop_w_ratio
         self.crop_h_ratio = crop_h_ratio
         self.debug = debug
+
+        self._cal_open_duration = 2.0
+        self._cal_countdown_step = 0.7
+        self._cal_blink_duration = 0.8
+        self._cal_rest_duration = 0.3
 
         self.camera_index = camera_index
         self.cap = self._open_camera()
@@ -70,9 +76,107 @@ class BlinkDetector:
         self._was_blinking = False
         self._last_flap_time = 0.0
         self._ratio_window = deque(maxlen=2)
-        self._baseline_window = deque(maxlen=baseline_window)
+        self._baseline = None
+        self._threshold = None
+        self._cal_started = False
+        self._reset_calibration_state()
         # Latest annotated frame in RGB, for the game to blit as a PiP overlay.
         self.latest_frame = None
+
+    def _reset_calibration_state(self):
+        self._cal_step = 'open'
+        self._cal_step_start = None
+        self._cal_active_round = 0
+        self._cal_open_samples = []
+        self._cal_blink_peaks = []
+        self._cal_current_peak = 0.0
+
+    @property
+    def is_calibrating(self):
+        return self._cal_started and self._threshold is None
+
+    @property
+    def needs_calibration(self):
+        return not self._cal_started and self._threshold is None
+
+    @property
+    def is_ready(self):
+        return self._threshold is not None
+
+    def start_calibration(self):
+        self._baseline = None
+        self._threshold = None
+        self._was_blinking = False
+        self._ratio_window.clear()
+        self._reset_calibration_state()
+        self._cal_started = True
+
+    def calibration_view(self):
+        """Lines to render in the menu while calibrating. Empty when done."""
+        if not self.is_calibrating:
+            return {}
+        step = self._cal_step
+        round_label = f"Blink {self._cal_active_round + 1} of {self.calibration_rounds}"
+        if step == 'open':
+            return {'title': 'CALIBRATING', 'body': 'Keep eyes open'}
+        if step in ('count_3', 'count_2', 'count_1'):
+            return {
+                'title': round_label,
+                'body': 'Get ready...',
+                'big': step.split('_')[1],
+            }
+        if step == 'blink':
+            return {'title': round_label, 'big': 'BLINK!'}
+        if step == 'rest':
+            return {'body': 'Nice!'}
+        return {}
+
+    def reset_calibration(self):
+        self._baseline = None
+        self._threshold = None
+        self._was_blinking = False
+        self._ratio_window.clear()
+        self._reset_calibration_state()
+        self._cal_started = False
+
+    def _advance_calibration(self, now):
+        elapsed = now - self._cal_step_start
+        step = self._cal_step
+        if step == 'open' and elapsed >= self._cal_open_duration:
+            self._cal_step, self._cal_step_start = 'count_3', now
+        elif step == 'count_3' and elapsed >= self._cal_countdown_step:
+            self._cal_step, self._cal_step_start = 'count_2', now
+        elif step == 'count_2' and elapsed >= self._cal_countdown_step:
+            self._cal_step, self._cal_step_start = 'count_1', now
+        elif step == 'count_1' and elapsed >= self._cal_countdown_step:
+            self._cal_step, self._cal_step_start = 'blink', now
+            self._cal_current_peak = 0.0
+        elif step == 'blink' and elapsed >= self._cal_blink_duration:
+            self._cal_blink_peaks.append(self._cal_current_peak)
+            self._cal_active_round += 1
+            if self._cal_active_round >= self.calibration_rounds:
+                self._finalize_calibration()
+            else:
+                self._cal_step, self._cal_step_start = 'rest', now
+        elif step == 'rest' and elapsed >= self._cal_rest_duration:
+            self._cal_step, self._cal_step_start = 'count_3', now
+
+    def _finalize_calibration(self):
+        if not self._cal_open_samples:
+            self.reset_calibration()
+            return
+        sorted_open = sorted(self._cal_open_samples)
+        self._baseline = sorted_open[len(sorted_open) // 4]
+        peaks = [p for p in self._cal_blink_peaks if p > 0]
+        gap = (sum(peaks) / len(peaks) - self._baseline) if peaks else 0.0
+        # Floor at the manual delta so a missed/half-hearted calibration blink
+        # doesn't leave the threshold absurdly close to the open baseline.
+        self._threshold = self._baseline + max(gap * 0.5, self.delta)
+        self._cal_step = 'done'
+        if self.debug:
+            print(f"calibration done: baseline={self._baseline:.2f} "
+                  f"peaks={[f'{p:.2f}' for p in peaks]} "
+                  f"threshold={self._threshold:.2f}")
 
     def _open_camera(self):
         """Try the configured index, then the other of {0, 1}. Returns the
@@ -108,6 +212,8 @@ class BlinkDetector:
             self._reopen_camera()
             return False
 
+        frame = cv2.flip(frame, 1)
+
         if self.crop_w_ratio < 1.0 or self.crop_h_ratio < 1.0:
             fh, fw = frame.shape[:2]
             cw, ch = int(fw * self.crop_w_ratio), int(fh * self.crop_h_ratio)
@@ -125,20 +231,30 @@ class BlinkDetector:
             right_eye_ratio = get_blink_ratio(RIGHT_EYE_LANDMARKS, landmarks, w, h)
             blink_ratio = (left_eye_ratio + right_eye_ratio) / 2
             self._ratio_window.append(blink_ratio)
-            # Only feed open frames into baseline so blinks don't drag it up.
-            if not self._was_blinking:
-                self._baseline_window.append(blink_ratio)
             smoothed_ratio = sum(self._ratio_window) / len(self._ratio_window)
-            if self._baseline_window:
-                sorted_window = sorted(self._baseline_window)
-                baseline = sorted_window[len(sorted_window) // 4]
-            else:
-                baseline = smoothed_ratio
-            is_blinking = (smoothed_ratio - baseline) > self.delta
+
+            if self.is_calibrating:
+                now = time.monotonic()
+                if self._cal_step_start is None:
+                    self._cal_step_start = now
+                if self._cal_step == 'open':
+                    self._cal_open_samples.append(blink_ratio)
+                elif self._cal_step == 'blink':
+                    self._cal_current_peak = max(self._cal_current_peak, blink_ratio)
+                self._advance_calibration(now)
+            elif self.is_ready:
+                is_blinking = smoothed_ratio > self._threshold
+
             if self.debug:
-                print(f"face=YES raw={blink_ratio:.2f} smooth={smoothed_ratio:.2f} "
-                      f"base={baseline:.2f} d={smoothed_ratio - baseline:+.2f} "
-                      f"state={'CLOSED' if is_blinking else 'open'}")
+                if self.is_calibrating:
+                    print(f"face=YES raw={blink_ratio:.2f} CALIBRATING "
+                          f"step={self._cal_step} round={self._cal_active_round}")
+                elif self.is_ready:
+                    print(f"face=YES raw={blink_ratio:.2f} smooth={smoothed_ratio:.2f} "
+                          f"thr={self._threshold:.2f} d={smoothed_ratio - self._threshold:+.2f} "
+                          f"state={'CLOSED' if is_blinking else 'open'}")
+                else:
+                    print(f"face=YES raw={blink_ratio:.2f} IDLE (awaiting calibration)")
             if self.show_window:
                 # Draw eye landmarks so we can verify they track the right points.
                 for idx in LEFT_EYE_LANDMARKS + RIGHT_EYE_LANDMARKS:
@@ -148,7 +264,15 @@ class BlinkDetector:
                 cv2.putText(frame, f"ratio={blink_ratio:.2f}",
                             (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX,
                             0.7, (0, 255, 255), 2, cv2.LINE_AA)
-                if is_blinking:
+                if self.is_calibrating:
+                    cv2.putText(frame, "CALIBRATING", (10, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                1.2, (0, 255, 255), 2, cv2.LINE_AA)
+                elif self.needs_calibration:
+                    cv2.putText(frame, "PRESS C", (10, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                1.2, (0, 255, 255), 2, cv2.LINE_AA)
+                elif is_blinking:
                     cv2.putText(frame, "BLINKING", (10, 50),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 2, (255, 255, 255), 2, cv2.LINE_AA)
